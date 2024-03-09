@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package testSample;
+
+import "buf/validate/validate.proto";
+import "other.proto";
+
+message TestMessage {
+  string name = 1;
+  int32 id = 2 [(buf.validate.field).required = true];
+  repeated string email = 3 [(buf.validate.field).required = true];
+  SameFile same_file = 4;
+  OtherFile other_file = 5;
+}
+
+message SameFile {
+  string name = 1;
+}

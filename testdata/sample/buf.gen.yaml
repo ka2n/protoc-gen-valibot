@@ -1,0 +1,14 @@
+version: v1
+
+managed:
+  enabled: true
+  go_package_prefix:
+    default: github.com/ka2n/protoc-gen-valibot/testdata/sample
+    except:
+      - 'buf.build/bufbuild/protovalidate'
+
+plugins:
+  - plugin: valibot
+    out: ./output
+    opt: paths=source_relative
+    path: ["go", "run", "../../cmd/protoc-gen-valibot/..."]

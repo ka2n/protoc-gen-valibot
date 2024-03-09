@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package testSample;
+
+import "buf/validate/validate.proto";
+
+message OtherFile {
+  string name = 1;
+}
