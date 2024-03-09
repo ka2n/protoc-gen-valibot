@@ -20,7 +20,12 @@ type Callable struct {
 const PkgLookup = ":lookup:"
 
 type Object struct {
-	Fields map[string]Node
+	Fields []ObjectField
+}
+
+type ObjectField struct {
+	Key   string
+	Value Node
 }
 
 type Array struct {
@@ -45,8 +50,8 @@ func (m Callable) String() string {
 
 func (o Object) String() string {
 	fields := make([]string, 0, len(o.Fields))
-	for key, value := range o.Fields {
-		fields = append(fields, fmt.Sprintf("\t%s: %s", key, value.String()))
+	for _, f := range o.Fields {
+		fields = append(fields, fmt.Sprintf("\t%s: %s", f.Key, f.Value.String()))
 	}
 	return fmt.Sprintf("{\n%s\n}", strings.Join(fields, ",\n "))
 }
@@ -77,7 +82,7 @@ func Walk(n Node, f func(Node)) {
 		}
 	case Object:
 		for _, field := range node.Fields {
-			Walk(field, f)
+			Walk(field.Value, f)
 		}
 	case Array:
 		for _, element := range node.Elements {

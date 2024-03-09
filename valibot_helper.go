@@ -86,11 +86,11 @@ func nodesToArray[T Node](elements ...T) Array {
 }
 
 func object(nameAndValues ...any) Object {
-	fields := make(map[string]Node)
+	fields := make([]ObjectField, 0, len(nameAndValues)/2)
 	for i := 0; i < len(nameAndValues); i += 2 {
 		name := nameAndValues[i].(string)
 		value := nameAndValues[i+1].(Node)
-		fields[name] = value
+		fields = append(fields, ObjectField{Key: name, Value: value})
 	}
 	return Object{Fields: fields}
 }
