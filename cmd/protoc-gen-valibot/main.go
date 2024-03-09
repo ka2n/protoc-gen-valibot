@@ -44,7 +44,7 @@ func main() {
 }
 
 type Plan struct {
-	Code             protocgenvalibot.Code
+	Code             protocgenvalibot.File
 	ExportedNames    []string
 	File             *protogen.File
 	GenerateFileName string
@@ -106,17 +106,20 @@ func render(newFile *protogen.GeneratedFile, plan Plan) error {
 
 	// Construct imports
 	importMap := plan.Code.GetImportMap()
-	//debug(&b, importMap)
-	importsKeys := lo.Keys(importMap)
-	sort.Strings(importsKeys)
-	for _, pkg := range importsKeys {
-		if pkg == "" || pkg == protocgenvalibot.PkgLookup {
-			// skip, this is local identifier or will be generated next step
-			continue
+	if len(importMap) > 0 {
+		//debug(&b, importMap)
+		importsKeys := lo.Keys(importMap)
+		sort.Strings(importsKeys)
+		for _, pkg := range importsKeys {
+			if pkg == "" || pkg == protocgenvalibot.PkgLookup {
+				// skip, this is local identifier or will be generated next step
+				continue
+			}
+			values := lo.Keys(importMap[pkg])
+			b.WriteString(protocgenvalibot.Import{Pkg: pkg, Names: values}.String())
+			b.WriteString("\n")
 		}
-		values := lo.Keys(importMap[pkg])
-		b.WriteString(protocgenvalibot.Import{Pkg: pkg, Names: values}.String())
-		b.WriteString("\n\n")
+		b.WriteString("\n")
 	}
 
 	// Construct import from other files
@@ -140,8 +143,10 @@ func render(newFile *protogen.GeneratedFile, plan Plan) error {
 		for fname, names := range imports {
 			sort.Strings(names)
 			b.WriteString(protocgenvalibot.Import{Pkg: fname, Names: names}.String())
-			b.WriteString("\n\n")
+			b.WriteString("\n")
 		}
+
+	b.WriteString("\n")
 	}
 
 	// Construct body

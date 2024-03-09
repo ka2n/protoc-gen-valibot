@@ -16,12 +16,14 @@ type Callable struct {
 	PkgFile string
 	Args    []Node
 }
+var _ Node = Callable{}
 
 const PkgLookup = ":lookup:"
 
 type Object struct {
 	Fields []ObjectField
 }
+var _ Node = Object{}
 
 type ObjectField struct {
 	Key   string
@@ -31,14 +33,17 @@ type ObjectField struct {
 type Array struct {
 	Elements []Node
 }
+var _ Node = Array{}
 
 type String struct {
 	Value string
 }
+var _ Node = String{}
 
 type Number struct {
 	Value int
 }
+var _ Node = Number{}
 
 func (m Callable) String() string {
 	args := make([]string, 0, len(m.Args))
@@ -110,11 +115,11 @@ func MergeImportMap(a, b ImportMap) ImportMap {
 	return a
 }
 
-type Code struct {
+type File struct {
 	Content []Declaration
 }
 
-func (c Code) GetImportMap() ImportMap {
+func (c File) GetImportMap() ImportMap {
 	imports := make(ImportMap)
 	for _, decl := range c.Content {
 		imports = MergeImportMap(imports, decl.GetImportMap())

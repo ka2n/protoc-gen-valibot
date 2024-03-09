@@ -8,7 +8,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-func Generate(file *protogen.File, code *Code) error {
+func Generate(file *protogen.File, code *File) error {
 	/** AST
 	source:
 	```typescript
