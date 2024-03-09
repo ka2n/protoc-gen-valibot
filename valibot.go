@@ -92,7 +92,7 @@ func astNodeFromFieldValue(f *protogen.Field, required bool) Node {
 	case protoreflect.Int32Kind, protoreflect.Int64Kind, protoreflect.Uint32Kind, protoreflect.Uint64Kind, protoreflect.FloatKind, protoreflect.DoubleKind:
 		return Callable{Name: "number", Pkg: "valibot"}
 	case protoreflect.MessageKind:
-		return Callable{Name: string(f.Desc.Message().Name()) + "Schema", Pkg: PkgLookup}
+		return Callable{Name: string(f.Desc.Message().Name()) + "Schema", Pkg: PkgLookup, PkgFile: string(f.Desc.Message().ParentFile().Path())}
 	default:
 		return valibotAny()
 	}

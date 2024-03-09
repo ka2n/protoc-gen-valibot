@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/k0kubun/pp/v3"
 	protocgenvalibot "github.com/ka2n/protoc-gen-valibot"
 	"github.com/samber/lo"
 	"google.golang.org/protobuf/compiler/protogen"
@@ -29,17 +31,10 @@ func main() {
 			}
 		}
 
-		var registry = make(map[string]string)
-		for _, plan := range preprocessedFiles {
-			for _, name := range plan.ExportedNames {
-				registry[name] = plan.GenerateFileName
-			}
-		}
-
 		// generate
 		for _, plan := range preprocessedFiles {
 			newFile := plugin.NewGeneratedFile(plan.GenerateFileName, ".")
-			if err := render(newFile, plan, registry); err != nil {
+			if err := render(newFile, plan); err != nil {
 				return fmt.Errorf("rendering file %s: %v", plan.File.Desc.Path(), err)
 			}
 		}
@@ -55,9 +50,35 @@ type Plan struct {
 	GenerateFileName string
 }
 
+func pathToGeneratedFile(protoPath string) string {
+	return strings.TrimSuffix(protoPath, ".proto") + ".valibot.ts"
+}
+
+func pathToImportPath(protoPath string) string {
+	return strings.TrimSuffix(pathToGeneratedFile(protoPath), ".ts")
+}
+
+func relativeImportPath(baseProto string, targetProto string) (string, error) {
+	if baseProto == targetProto {
+		return ".", nil
+	}
+
+	targetProto = strings.TrimSuffix(targetProto, ".proto") + ".ts"
+
+	rel, err := filepath.Rel(filepath.Dir(baseProto), targetProto)
+	if err != nil {
+		return "", err
+	}
+
+	if !strings.HasPrefix(rel, ".") {
+		rel = "./" + rel
+	}
+	return rel[:len(rel)-3], nil
+}
+
 func generatePlan(file *protogen.File, plan *Plan) error {
 	plan.File = file
-	plan.GenerateFileName = file.GeneratedFilenamePrefix + ".valibot.ts"
+	plan.GenerateFileName = pathToGeneratedFile(file.Desc.Path())
 
 	if err := protocgenvalibot.Generate(file, &plan.Code); err != nil {
 		return fmt.Errorf("generating file %s: %v", file.Desc.Path(), err)
@@ -71,11 +92,12 @@ func generatePlan(file *protogen.File, plan *Plan) error {
 	return nil
 }
 
-func render(newFile *protogen.GeneratedFile, plan Plan, registry map[string]string) error {
+func render(newFile *protogen.GeneratedFile, plan Plan) error {
 	var b bytes.Buffer
 
 	// Construct imports
 	importMap := plan.Code.GetImportMap()
+	//debug(&b, importMap)
 	importsKeys := lo.Keys(importMap)
 	sort.Strings(importsKeys)
 	for _, pkg := range importsKeys {
@@ -91,29 +113,24 @@ func render(newFile *protogen.GeneratedFile, plan Plan, registry map[string]stri
 	// Construct import from other files
 	if len(importMap[protocgenvalibot.PkgLookup]) > 0 {
 		// Create map<import path, import names>
-		values := lo.Keys(importMap[protocgenvalibot.PkgLookup])
 		imports := make(map[string][]string)
 
-		for _, name := range values {
-			fname := registry[name]
-			if fname == "" {
-				return fmt.Errorf("cannot find file name for %s", name)
+		for name, detail := range importMap[protocgenvalibot.PkgLookup] {
+			rel, err := relativeImportPath(plan.File.Desc.Path(),  detail.FullName)
+			if err != nil {
+				return err
 			}
-			if imports[fname] == nil {
-				imports[fname] = make([]string, 0)
+			if rel == "." {
+				// skip, this is local identifier
+				continue
 			}
+			fname := pathToImportPath(rel)
 			imports[fname] = append(imports[fname], name)
 		}
 
 		for fname, names := range imports {
-			if fname == plan.GenerateFileName {
-				// skip, this is local identifier
-				continue
-			}
-
-			pkg := "./" + strings.TrimSuffix(fname, ".ts")
 			sort.Strings(names)
-			b.WriteString(protocgenvalibot.Import{Pkg: pkg, Names: names}.String())
+			b.WriteString(protocgenvalibot.Import{Pkg: fname, Names: names}.String())
 			b.WriteString("\n\n")
 		}
 	}
@@ -130,4 +147,12 @@ func render(newFile *protogen.GeneratedFile, plan Plan, registry map[string]stri
 	}
 
 	return nil
+}
+
+func debug(b *bytes.Buffer, v ...interface{}) {
+	pp.Default.SetColoringEnabled(false)
+	b.WriteString("/**\n")
+	pp.Fprintln(b, v...)
+	b.WriteString("*/\n")
+	pp.Default.SetColoringEnabled(true)
 }

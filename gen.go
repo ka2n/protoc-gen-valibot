@@ -11,9 +11,10 @@ type Node interface {
 }
 
 type Callable struct {
-	Name string
-	Pkg  string
-	Args []Node
+	Name    string
+	Pkg     string
+	PkgFile string
+	Args    []Node
 }
 
 const PkgLookup = ":lookup:"
@@ -86,15 +87,19 @@ func Walk(n Node, f func(Node)) {
 	}
 }
 
-type ImportMap map[string]map[string]any
+type ImportMap map[string]map[string]ImportMapDetail
+
+type ImportMapDetail struct {
+	FullName string
+}
 
 func MergeImportMap(a, b ImportMap) ImportMap {
 	for pkg, names := range b {
 		if a[pkg] == nil {
-			a[pkg] = map[string]any{}
+			a[pkg] = map[string]ImportMapDetail{}
 		}
-		for name := range names {
-			a[pkg][name] = struct{}{}
+		for name, v := range names {
+			a[pkg][name] = v
 		}
 	}
 	return a
@@ -146,9 +151,9 @@ func (v ExportVar) GetImportMap() ImportMap {
 				break
 			default:
 				if imports[node.Pkg] == nil {
-					imports[node.Pkg] = map[string]any{}
+					imports[node.Pkg] = map[string]ImportMapDetail{}
 				}
-				imports[node.Pkg][node.Name] = struct{}{}
+				imports[node.Pkg][node.Name] = ImportMapDetail{FullName: node.PkgFile}
 			}
 		}
 	})
