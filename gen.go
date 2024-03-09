@@ -126,11 +126,18 @@ type Declaration interface {
 type ExportVar struct {
 	Name  string
 	Value Node
+	Comment string
 }
 
 // String implements Declaration.
 func (v ExportVar) String() string {
-	return fmt.Sprintf("export const %s = () => %s", v.Name, v.Value.String())
+	comment := v.Comment
+	if strings.HasPrefix(comment, "// ") {
+		comment = strings.TrimPrefix(comment, "//")
+		comment = strings.TrimSpace(comment)
+		comment = "/** " + comment + " */\n"
+	}
+	return fmt.Sprintf("%sexport const %s = () => %s", comment, v.Name, v.Value.String())
 }
 
 // GetName implements Declaration.

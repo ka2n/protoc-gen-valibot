@@ -45,7 +45,7 @@ func Generate(file *protogen.File, code *Code) error {
 	for _, m := range messages {
 		name := string(m.Desc.Name()) + "Schema"
 		ast := astNodeFromMessage(m)
-		decl := ExportVar{Name: name, Value: ast}
+		decl := ExportVar{Name: name, Value: ast, Comment: m.Comments.Leading.String()}
 
 		declarations = append(declarations, decl)
 	}
