@@ -1,32 +1,33 @@
 package protocgenvalibot
 
 import (
+	"flag"
 	"os"
 	"os/exec"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/require"
+	"github.com/tenntenn/golden"
 )
 
+var flagUpdate bool
+
+func init() {
+	flag.BoolVar(&flagUpdate, "update", false, "update .golden files")
+}
+
 func TestValibot(t *testing.T) {
+	dir := t.TempDir()
+
 	// Run `buf generate`
-	cmd := exec.Command("buf", "generate")
+	cmd := exec.Command("buf", "generate", "-o", dir)
 	cmd.Dir = "./testdata/sample"
 	cmd.Stderr = os.Stderr
 	err := cmd.Run()
 	require.NoError(t, err)
 
-	// ./output/sample.valibot.ts should be identical to ./expected/sample.valibot.ts
-	expected, err := os.ReadFile("./testdata/sample/expected/sample.valibot.ts")
-	require.NoError(t, err)
-
-	actual, err := os.ReadFile("./testdata/sample/output/sample.valibot.ts")
-	require.NoError(t, err)
-
-	t.Logf("actual: %s", string(actual))
-
-	if diff := cmp.Diff(string(expected), string(actual)); diff != "" {
+	got := golden.Txtar(t, dir)
+	if diff := golden.Check(t, flagUpdate, "testdata/sample", "output", got); diff != "" {
 		t.Errorf("unexpected output (-want +got):\n%s", diff)
 	}
 }
