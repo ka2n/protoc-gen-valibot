@@ -61,7 +61,7 @@ func astNodeFromMessage(m *protogen.Message) Node {
 		return fields[i].Desc.Number() < fields[j].Desc.Number()
 	})
 	for _, f := range fields {
-		nameAndValues = append(nameAndValues, string(f.Desc.Name()))
+		nameAndValues = append(nameAndValues, string(f.Desc.JSONName()))
 		nameAndValues = append(nameAndValues, astNodeFromField(f))
 	}
 	return vmethod("object", object(nameAndValues...))
