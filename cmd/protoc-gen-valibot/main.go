@@ -108,9 +108,8 @@ func render(newFile *protogen.GeneratedFile, plan Plan) error {
 	importMap := plan.Code.GetImportMap()
 	if len(importMap) > 0 {
 		//debug(&b, importMap)
-		importsKeys := lo.Keys(importMap)
-		sort.Strings(importsKeys)
-		for _, pkg := range importsKeys {
+		importKeys := sortedKeys(importMap)
+		for _, pkg := range importKeys {
 			if pkg == "" || pkg == protocgenvalibot.PkgLookup {
 				// skip, this is local identifier or will be generated next step
 				continue
@@ -128,7 +127,7 @@ func render(newFile *protogen.GeneratedFile, plan Plan) error {
 		imports := make(map[string][]string)
 
 		for name, detail := range importMap[protocgenvalibot.PkgLookup] {
-			rel, err := relativeImportPath(plan.File.Desc.Path(),  detail.FullName)
+			rel, err := relativeImportPath(plan.File.Desc.Path(), detail.FullName)
 			if err != nil {
 				return err
 			}
@@ -140,13 +139,15 @@ func render(newFile *protogen.GeneratedFile, plan Plan) error {
 			imports[fname] = append(imports[fname], name)
 		}
 
-		for fname, names := range imports {
+		importKeys := sortedKeys(imports)
+		for _, fname := range importKeys {
+			names := imports[fname]
 			sort.Strings(names)
 			b.WriteString(protocgenvalibot.Import{Pkg: fname, Names: names}.String())
 			b.WriteString("\n")
 		}
 
-	b.WriteString("\n")
+		b.WriteString("\n")
 	}
 
 	// Construct body
@@ -161,6 +162,12 @@ func render(newFile *protogen.GeneratedFile, plan Plan) error {
 	}
 
 	return nil
+}
+
+func sortedKeys[T any](m map[string]T) []string {
+	keys := lo.Keys(m)
+	sort.Strings(keys)
+	return keys
 }
 
 func debug(b *bytes.Buffer, v ...interface{}) {
