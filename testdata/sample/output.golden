@@ -27,7 +27,7 @@ export const SameFileSchema = () => object({
 export const TestMessageSchema = () => object({
 	name: string(),
  	id: number(),
- 	email: array(string([minLength(1)])),
+ 	email: array(string(), [minLength(1)]),
  	sameFile: SameFileSchema(),
  	otherFile: OtherFileSchema()
 })
