@@ -74,7 +74,18 @@ func astNodeFromField(f *protogen.Field) Node {
 	required = constraints.GetRequired()
 
 	if f.Desc.IsList() {
-		return valibotArray(astNodeFromFieldValue(f, required), "")
+		// https://buf.build/bufbuild/protovalidate/docs/main:buf.validate#buf.validate.FieldConstraints
+		// if FieldConstraints.required is true, then it is a non-empty array
+		// Further constraints can be added by using RepeatedRules, but it is not supported yet :(
+		if required {
+			return valibotArray(
+				astNodeFromFieldValue(f, false),
+				"",
+				vmethod("minLength", Number{Value: 1}),
+			)
+		} else {
+			return valibotArray(astNodeFromFieldValue(f, false), "")
+		}
 	}
 	return astNodeFromFieldValue(f, required)
 }
