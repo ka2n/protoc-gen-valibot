@@ -87,11 +87,37 @@ func astNodeFromField(f *protogen.Field) Node {
 			return valibotArray(astNodeFromFieldValue(f, false), "")
 		}
 	}
+
+	if f.Desc.IsMap() {
+		// Key is string,numeric, or boolean
+		var keyType Node
+		switch (f.Desc.MapKey()).Kind() {
+		case protoreflect.StringKind:
+			keyType = valibotString("")
+		case protoreflect.BoolKind:
+			keyType = valibotBoolean("")
+		case protoreflect.Int32Kind, protoreflect.Int64Kind, protoreflect.Uint32Kind, protoreflect.Uint64Kind, protoreflect.FloatKind, protoreflect.DoubleKind:
+			keyType = valibotNumber()
+		default:
+			panic("unsupported map key type")
+		}
+
+		return valibotRecord(
+			keyType,
+			astNodeFromFieldDescriptor(f.Desc.MapValue(), false),
+		)
+	}
+
 	return astNodeFromFieldValue(f, required)
 }
 
 func astNodeFromFieldValue(f *protogen.Field, required bool) Node {
-	switch f.Desc.Kind() {
+	return astNodeFromFieldDescriptor(f.Desc, required)
+}
+
+func astNodeFromFieldDescriptor(f protoreflect.FieldDescriptor, required bool) Node {
+	switch f.Kind() {
+	// Scalars
 	case protoreflect.StringKind:
 		if required {
 			return valibotString("", vmethod("minLength", Number{1}))
@@ -101,20 +127,22 @@ func astNodeFromFieldValue(f *protogen.Field, required bool) Node {
 	case protoreflect.BoolKind:
 		return valibotBoolean("")
 	case protoreflect.Int32Kind, protoreflect.Int64Kind, protoreflect.Uint32Kind, protoreflect.Uint64Kind, protoreflect.FloatKind, protoreflect.DoubleKind:
-		return Callable{Name: "number", Pkg: "valibot"}
+		return valibotNumber()
+
+	// Message
 	case protoreflect.MessageKind:
 		// Ignore map for now
-		if f.Desc.Message().IsMapEntry() {
+		if f.Message().IsMapEntry() {
 			return valibotAny()
 		}
 
 		// Well-known types
-		pkgName := string(f.Desc.Message().FullName().Parent())
+		pkgName := string(f.Message().FullName().Parent())
 		if pkgName == "google.protobuf" {
 			return valibotAny()
 		}
 
-		return Callable{Name: string(f.Desc.Message().Name()) + "Schema", Pkg: PkgLookup, PkgFile: string(f.Desc.Message().ParentFile().Path())}
+		return Callable{Name: string(f.Message().Name()) + "Schema", Pkg: PkgLookup, PkgFile: string(f.Message().ParentFile().Path())}
 	default:
 		return valibotAny()
 	}
