@@ -16,7 +16,7 @@ export const OtherFileSchema = () => object({
 
 // eslint-disable
 // biome-ignore format lint: 
-import { array, minLength, number, object, string } from 'valibot'
+import { any, array, minLength, number, object, record, string } from 'valibot'
 
 import { OtherFileSchema } from './other.valibot'
 
@@ -24,11 +24,16 @@ export const SameFileSchema = () => object({
 	name: string()
 })
 
+export const StructSchema = () => object({
+	values: any()
+})
+
 export const TestMessageSchema = () => object({
 	name: string(),
  	id: number(),
  	email: array(string(), [minLength(1)]),
  	sameFile: SameFileSchema(),
- 	otherFile: OtherFileSchema()
+ 	otherFile: OtherFileSchema(),
+ 	map: record(string(), StructSchema())
 })
 

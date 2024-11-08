@@ -4,6 +4,7 @@ package testSample;
 
 import "buf/validate/validate.proto";
 import "other.proto";
+import "google/protobuf/struct.proto"; 
 
 message TestMessage {
   string name = 1;
@@ -11,8 +12,14 @@ message TestMessage {
   repeated string email = 3 [(buf.validate.field).required = true];
   SameFile same_file = 4;
   OtherFile other_file = 5;
+  map<string, Struct> map = 6;
 }
 
 message SameFile {
   string name = 1;
+}
+
+message Struct {
+  // Well-Known Type
+  google.protobuf.Struct values = 1;
 }

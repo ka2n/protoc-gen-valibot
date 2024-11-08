@@ -19,6 +19,10 @@ func valibotString(message string, pipe ...Callable) Callable {
 	}
 }
 
+func valibotNumber() Callable {
+	return Callable{Name: "number", Pkg: "valibot"}
+}
+
 func valibotAny() Callable {
 	return Callable{Name: "any", Pkg: "valibot"}
 }
@@ -52,6 +56,10 @@ func valibotArray(item Node, message string, pipe ...Callable) Callable {
 		Pkg:  "valibot",
 		Args: args,
 	}
+}
+
+func valibotRecord(key Node, value Node) Callable {
+	return Callable{Name: "record", Pkg: "valibot", Args: []Node{key, value}}
 }
 
 // boolean(ErrorMessage|undefined, Pipe|undefined) | boolean(Pipe)
