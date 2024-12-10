@@ -82,7 +82,7 @@ func astNodeFromMessage(genCtx GenContext, m protoreflect.MessageDescriptor) (No
 	baseObj := valibotObject(object(nameAndValues...))
 	oneOfsIter := m.Oneofs()
 	if oneOfsIter.Len() == 0 {
-		return baseObj, nil
+		return valibotPartial(baseObj), nil
 	}
 
 	oneOfNodes := make([]Node, 0, oneOfsIter.Len())
@@ -97,7 +97,7 @@ func astNodeFromMessage(genCtx GenContext, m protoreflect.MessageDescriptor) (No
 			nameAndValues = append(nameAndValues, astNodeFromField(genCtx, ff))
 		}
 
-		oneOfNodes = append(oneOfNodes, valibotPartial(valibotObject(object(nameAndValues...))))
+		oneOfNodes = append(oneOfNodes, valibotObject(object(nameAndValues...)))
 	}
 
 	elements := make([]Node, 0, len(oneOfNodes)+1)
@@ -106,7 +106,7 @@ func astNodeFromMessage(genCtx GenContext, m protoreflect.MessageDescriptor) (No
 	member := lo.Map(elements, func(e Node, _ int) ObjectMember {
 		return ObjectSpread{Paren{Member{e, Ident{"entries"}}}}
 	})
-	return valibotObject(Object{member}), nil
+	return valibotPartial(valibotObject(Object{member})), nil
 }
 
 func astNodeFromField(genCtx GenContext, f protoreflect.FieldDescriptor) Node {
