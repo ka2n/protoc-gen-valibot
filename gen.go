@@ -224,7 +224,7 @@ type ExportVar struct {
 // String implements Declaration.
 func (v ExportVar) String() string {
 	comment := v.Comment
-	if strings.HasPrefix(comment, "// ") {
+	if comment != "" {
 		comment = strings.TrimPrefix(comment, "//")
 		comment = strings.TrimSpace(comment)
 		comment = "/** " + comment + " */\n"

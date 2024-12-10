@@ -1,11 +1,8 @@
 package protocgenvalibot
 
 import (
-	"sort"
-
 	pvr "github.com/bufbuild/protovalidate-go/resolver"
 	"github.com/samber/lo"
-	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
@@ -17,7 +14,7 @@ type GenContext struct {
 	Opt GenerateOptions
 }
 
-func Generate(file *protogen.File, code *File, opt GenerateOptions) error {
+func Generate(file protoreflect.FileDescriptor, code *File, opt GenerateOptions) error {
 	/** AST
 	source:
 	```typescript
@@ -47,20 +44,18 @@ func Generate(file *protogen.File, code *File, opt GenerateOptions) error {
 
 	genCtx := GenContext{Opt: opt}
 
-	messages := file.Messages
-	sort.Slice(messages, func(i, j int) bool {
-		return messages[i].Desc.Name() < messages[j].Desc.Name()
-	})
+	messages := file.Messages()
+	declarations := make([]Declaration, 0, messages.Len())
 
-	declarations := make([]Declaration, 0, len(messages))
-	for _, m := range messages {
-		name := string(m.Desc.Name()) + genCtx.Opt.SchemaSuffix
+	for i := 0; i < messages.Len(); i++ {
+		m := messages.Get(i)
+		loc := m.ParentFile().SourceLocations().ByDescriptor(m)
+		name := string(m.Name()) + genCtx.Opt.SchemaSuffix
 		ast, err := astNodeFromMessage(genCtx, m)
 		if err != nil {
 			return err
 		}
-		decl := ExportVar{Name: name, Value: ast, Comment: m.Comments.Leading.String()}
-
+		decl := ExportVar{Name: name, Value: ast, Comment: loc.LeadingComments}
 		declarations = append(declarations, decl)
 	}
 
@@ -68,52 +63,59 @@ func Generate(file *protogen.File, code *File, opt GenerateOptions) error {
 	return nil
 }
 
-func astNodeFromMessage(genCtx GenContext, m *protogen.Message) (Node, error) {
-	fields := m.Fields
-	sort.Slice(fields, func(i, j int) bool {
-		return fields[i].Desc.Number() < fields[j].Desc.Number()
-	})
+func astNodeFromMessage(genCtx GenContext, m protoreflect.MessageDescriptor) (Node, error) {
+	fieldsIter := m.Fields()
 
-	normalFields := lo.Filter(fields, func(f *protogen.Field, _ int) bool {
-		return f.Oneof == nil
-	})
+	normalFields := make([]protoreflect.FieldDescriptor, 0, fieldsIter.Len())
+	for i := 0; i < fieldsIter.Len(); i++ {
+		f := fieldsIter.Get(i)
+		if f.ContainingOneof() == nil {
+			normalFields = append(normalFields, fieldsIter.Get(i))
+		}
+	}
 
 	var nameAndValues []any
 	for _, f := range normalFields {
-		nameAndValues = append(nameAndValues, string(f.Desc.JSONName()))
+		nameAndValues = append(nameAndValues, string(f.JSONName()))
 		nameAndValues = append(nameAndValues, astNodeFromField(genCtx, f))
 	}
 	baseObj := valibotObject(object(nameAndValues...))
-	if len(m.Oneofs) == 0 {
+	oneOfsIter := m.Oneofs()
+	if oneOfsIter.Len() == 0 {
 		return baseObj, nil
 	}
 
-	oneOfs := lo.Map(m.Oneofs, func(f *protogen.Oneof, _ int) Node {
+	oneOfNodes := make([]Node, 0, oneOfsIter.Len())
+	//oneOfs := make([]protoreflect.OneofDescriptor, 0, oneOfsIter.Len())
+	for i := 0; i < oneOfsIter.Len(); i++ {
+		o := oneOfsIter.Get(i)
+
 		var nameAndValues []any
-		for _, ff := range f.Fields {
-			nameAndValues = append(nameAndValues, string(ff.Desc.JSONName()))
+		for i := 0; i < o.Fields().Len(); i++ {
+			ff := o.Fields().Get(i)
+			nameAndValues = append(nameAndValues, string(ff.JSONName()))
 			nameAndValues = append(nameAndValues, astNodeFromField(genCtx, ff))
 		}
-		// ...(object({ <fields> }).entries)
-		return valibotPartial(valibotObject(object(nameAndValues...)))
-	})
 
-	elements := make([]Node, 0, len(oneOfs)+1)
+		oneOfNodes = append(oneOfNodes, valibotPartial(valibotObject(object(nameAndValues...))))
+	}
+
+	elements := make([]Node, 0, len(oneOfNodes)+1)
 	elements = append(elements, baseObj)
-	elements = append(elements, oneOfs...)
+	elements = append(elements, oneOfNodes...)
 	member := lo.Map(elements, func(e Node, _ int) ObjectMember {
 		return ObjectSpread{Paren{Member{e, Ident{"entries"}}}}
 	})
 	return valibotObject(Object{member}), nil
 }
 
-func astNodeFromField(genCtx GenContext, f *protogen.Field) Node {
+func astNodeFromField(genCtx GenContext, f protoreflect.FieldDescriptor) Node {
 	var required bool
 	pvresolver := pvr.DefaultResolver{}
-	constraints := pvresolver.ResolveFieldConstraints(f.Desc)
+	constraints := pvresolver.ResolveFieldConstraints(f)
 	required = constraints.GetRequired()
 
-	if f.Desc.IsList() {
+	if f.IsList() {
 		// https://buf.build/bufbuild/protovalidate/docs/main:buf.validate#buf.validate.FieldConstraints
 		// if FieldConstraints.required is true, then it is a non-empty array
 		// Further constraints can be added by using RepeatedRules, but it is not supported yet :(
@@ -124,10 +126,10 @@ func astNodeFromField(genCtx GenContext, f *protogen.Field) Node {
 		}
 	}
 
-	if f.Desc.IsMap() {
+	if f.IsMap() {
 		// Key is string,numeric, or boolean
 		var keyType Node
-		switch (f.Desc.MapKey()).Kind() {
+		switch (f.MapKey()).Kind() {
 		case protoreflect.StringKind:
 			keyType = valibotString("")
 		case protoreflect.BoolKind:
@@ -140,15 +142,15 @@ func astNodeFromField(genCtx GenContext, f *protogen.Field) Node {
 
 		return valibotRecord(
 			keyType,
-			astNodeFromFieldDescriptor(genCtx, f.Desc.MapValue(), false),
+			astNodeFromFieldDescriptor(genCtx, f.MapValue(), false),
 		)
 	}
 
 	return astNodeFromFieldValue(genCtx, f, required)
 }
 
-func astNodeFromFieldValue(genCtx GenContext, f *protogen.Field, required bool) Node {
-	return astNodeFromFieldDescriptor(genCtx, f.Desc, required)
+func astNodeFromFieldValue(genCtx GenContext, f protoreflect.FieldDescriptor, required bool) Node {
+	return astNodeFromFieldDescriptor(genCtx, f, required)
 }
 
 func astNodeFromFieldDescriptor(genCtx GenContext, f protoreflect.FieldDescriptor, required bool) Node {

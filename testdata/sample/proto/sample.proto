@@ -6,7 +6,9 @@ import "buf/validate/validate.proto";
 import "other.proto";
 import "google/protobuf/struct.proto"; 
 
+// TestMessage is a test message.
 message TestMessage {
+  // name is the name.
   string name = 1;
   int32 id = 2 [(buf.validate.field).required = true];
   repeated string email = 3 [(buf.validate.field).required = true];
