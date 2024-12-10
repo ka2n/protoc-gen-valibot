@@ -1,14 +1,20 @@
 package protocgenvalibot
 
 import (
-	"sort"
-
 	pvr "github.com/bufbuild/protovalidate-go/resolver"
-	"google.golang.org/protobuf/compiler/protogen"
+	"github.com/samber/lo"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-func Generate(file *protogen.File, code *File) error {
+type GenerateOptions struct {
+	SchemaSuffix string
+}
+
+type GenContext struct {
+	Opt GenerateOptions
+}
+
+func Generate(file protoreflect.FileDescriptor, code *File, opt GenerateOptions) error {
 	/** AST
 	source:
 	```typescript
@@ -36,17 +42,20 @@ func Generate(file *protogen.File, code *File) error {
 	```
 	*/
 
-	messages := file.Messages
-	sort.Slice(messages, func(i, j int) bool {
-		return messages[i].Desc.Name() < messages[j].Desc.Name()
-	})
+	genCtx := GenContext{Opt: opt}
 
-	declarations := make([]Declaration, 0, len(messages))
-	for _, m := range messages {
-		name := string(m.Desc.Name()) + "Schema"
-		ast := astNodeFromMessage(m)
-		decl := ExportVar{Name: name, Value: ast, Comment: m.Comments.Leading.String()}
+	messages := file.Messages()
+	declarations := make([]Declaration, 0, messages.Len())
 
+	for i := 0; i < messages.Len(); i++ {
+		m := messages.Get(i)
+		loc := m.ParentFile().SourceLocations().ByDescriptor(m)
+		name := string(m.Name()) + genCtx.Opt.SchemaSuffix
+		ast, err := astNodeFromMessage(genCtx, m)
+		if err != nil {
+			return err
+		}
+		decl := ExportVar{Name: name, Value: ast, Comment: loc.LeadingComments}
 		declarations = append(declarations, decl)
 	}
 
@@ -54,44 +63,73 @@ func Generate(file *protogen.File, code *File) error {
 	return nil
 }
 
-func astNodeFromMessage(m *protogen.Message) Node {
-	var nameAndValues []any
-	fields := m.Fields
-	sort.Slice(fields, func(i, j int) bool {
-		return fields[i].Desc.Number() < fields[j].Desc.Number()
-	})
-	for _, f := range fields {
-		nameAndValues = append(nameAndValues, string(f.Desc.JSONName()))
-		nameAndValues = append(nameAndValues, astNodeFromField(f))
+func astNodeFromMessage(genCtx GenContext, m protoreflect.MessageDescriptor) (Node, error) {
+	fieldsIter := m.Fields()
+
+	normalFields := make([]protoreflect.FieldDescriptor, 0, fieldsIter.Len())
+	for i := 0; i < fieldsIter.Len(); i++ {
+		f := fieldsIter.Get(i)
+		if f.ContainingOneof() == nil {
+			normalFields = append(normalFields, fieldsIter.Get(i))
+		}
 	}
-	return vmethod("object", object(nameAndValues...))
+
+	var nameAndValues []any
+	for _, f := range normalFields {
+		nameAndValues = append(nameAndValues, string(f.JSONName()))
+		nameAndValues = append(nameAndValues, astNodeFromField(genCtx, f))
+	}
+	baseObj := valibotObject(object(nameAndValues...))
+	oneOfsIter := m.Oneofs()
+	if oneOfsIter.Len() == 0 {
+		return valibotPartial(baseObj), nil
+	}
+
+	oneOfNodes := make([]Node, 0, oneOfsIter.Len())
+	//oneOfs := make([]protoreflect.OneofDescriptor, 0, oneOfsIter.Len())
+	for i := 0; i < oneOfsIter.Len(); i++ {
+		o := oneOfsIter.Get(i)
+
+		var nameAndValues []any
+		for i := 0; i < o.Fields().Len(); i++ {
+			ff := o.Fields().Get(i)
+			nameAndValues = append(nameAndValues, string(ff.JSONName()))
+			nameAndValues = append(nameAndValues, astNodeFromField(genCtx, ff))
+		}
+
+		oneOfNodes = append(oneOfNodes, valibotObject(object(nameAndValues...)))
+	}
+
+	elements := make([]Node, 0, len(oneOfNodes)+1)
+	elements = append(elements, baseObj)
+	elements = append(elements, oneOfNodes...)
+	member := lo.Map(elements, func(e Node, _ int) ObjectMember {
+		return ObjectSpread{Paren{Member{e, Ident{"entries"}}}}
+	})
+	return valibotPartial(valibotObject(Object{member})), nil
 }
 
-func astNodeFromField(f *protogen.Field) Node {
+func astNodeFromField(genCtx GenContext, f protoreflect.FieldDescriptor) Node {
 	var required bool
 	pvresolver := pvr.DefaultResolver{}
-	constraints := pvresolver.ResolveFieldConstraints(f.Desc)
+	constraints := pvresolver.ResolveFieldConstraints(f)
 	required = constraints.GetRequired()
 
-	if f.Desc.IsList() {
+	if f.IsList() {
 		// https://buf.build/bufbuild/protovalidate/docs/main:buf.validate#buf.validate.FieldConstraints
 		// if FieldConstraints.required is true, then it is a non-empty array
 		// Further constraints can be added by using RepeatedRules, but it is not supported yet :(
 		if required {
-			return valibotArray(
-				astNodeFromFieldValue(f, false),
-				"",
-				vmethod("minLength", Number{Value: 1}),
-			)
+			return valibotPipe(valibotArray(astNodeFromFieldValue(genCtx, f, false), ""), vmethod("minLength", Number{Value: 1}))
 		} else {
-			return valibotArray(astNodeFromFieldValue(f, false), "")
+			return valibotArray(astNodeFromFieldValue(genCtx, f, false), "")
 		}
 	}
 
-	if f.Desc.IsMap() {
+	if f.IsMap() {
 		// Key is string,numeric, or boolean
 		var keyType Node
-		switch (f.Desc.MapKey()).Kind() {
+		switch (f.MapKey()).Kind() {
 		case protoreflect.StringKind:
 			keyType = valibotString("")
 		case protoreflect.BoolKind:
@@ -104,23 +142,23 @@ func astNodeFromField(f *protogen.Field) Node {
 
 		return valibotRecord(
 			keyType,
-			astNodeFromFieldDescriptor(f.Desc.MapValue(), false),
+			astNodeFromFieldDescriptor(genCtx, f.MapValue(), false),
 		)
 	}
 
-	return astNodeFromFieldValue(f, required)
+	return astNodeFromFieldValue(genCtx, f, required)
 }
 
-func astNodeFromFieldValue(f *protogen.Field, required bool) Node {
-	return astNodeFromFieldDescriptor(f.Desc, required)
+func astNodeFromFieldValue(genCtx GenContext, f protoreflect.FieldDescriptor, required bool) Node {
+	return astNodeFromFieldDescriptor(genCtx, f, required)
 }
 
-func astNodeFromFieldDescriptor(f protoreflect.FieldDescriptor, required bool) Node {
+func astNodeFromFieldDescriptor(genCtx GenContext, f protoreflect.FieldDescriptor, required bool) Node {
 	switch f.Kind() {
 	// Scalars
 	case protoreflect.StringKind:
 		if required {
-			return valibotString("", vmethod("minLength", Number{1}))
+			return valibotPipe(valibotString(""), vmethod("minLength", Number{1}))
 		} else {
 			return valibotString("")
 		}
@@ -142,7 +180,7 @@ func astNodeFromFieldDescriptor(f protoreflect.FieldDescriptor, required bool) N
 			return valibotAny()
 		}
 
-		return Callable{Name: string(f.Message().Name()) + "Schema", Pkg: PkgLookup, PkgFile: string(f.Message().ParentFile().Path())}
+		return Callable{Name: string(f.Message().Name()) + genCtx.Opt.SchemaSuffix, Pkg: PkgLookup, PkgFile: string(f.Message().ParentFile().Path()), Args: []Node{}}
 	default:
 		return valibotAny()
 	}

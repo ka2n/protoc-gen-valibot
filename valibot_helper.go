@@ -20,23 +20,23 @@ func valibotString(message string, pipe ...Callable) Callable {
 }
 
 func valibotNumber() Callable {
-	return Callable{Name: "number", Pkg: "valibot"}
+	return Callable{Name: "number", Pkg: "valibot", Args: []Node{}}
 }
 
 func valibotAny() Callable {
-	return Callable{Name: "any", Pkg: "valibot"}
+	return Callable{Name: "any", Pkg: "valibot", Args: []Node{}}
 }
 
-func valibotOptional[T Node](item T) Node {
-	return Callable{
-		Name: "optional",
-		Pkg:  "valibot",
-		Args: []Node{item},
-	}
+func valibotPipe(pipes ...Node) Callable {
+	return Callable{Name: "pipe", Pkg: "valibot", Args: pipes}
 }
 
-func valibotNoop[T Node](item T) Node {
-	return item
+func valibotPartial(item Node) Callable {
+	return Callable{Name: "partial", Pkg: "valibot", Args: []Node{item}}
+}
+
+func valibotObject(obj Node) Callable {
+	return Callable{Name: "object", Pkg: "valibot", Args: []Node{obj}}
 }
 
 // array(Item, ErrorMessage|undefined, Pipe|undefined) | array(item, Pipe) | array(item)
@@ -94,7 +94,7 @@ func nodesToArray[T Node](elements ...T) Array {
 }
 
 func object(nameAndValues ...any) Object {
-	fields := make([]ObjectField, 0, len(nameAndValues)/2)
+	fields := make([]ObjectMember, 0, len(nameAndValues)/2)
 	for i := 0; i < len(nameAndValues); i += 2 {
 		name := nameAndValues[i].(string)
 		value := nameAndValues[i+1].(Node)

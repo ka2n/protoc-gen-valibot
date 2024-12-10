@@ -3,12 +3,13 @@ module github.com/ka2n/protoc-gen-valibot
 go 1.21.0
 
 require (
+	github.com/bufbuild/protoplugin v0.0.0-20240911180120-7bb73e41a54a
 	github.com/bufbuild/protovalidate-go v0.6.0
 	github.com/k0kubun/pp/v3 v3.2.0
 	github.com/samber/lo v1.39.0
 	github.com/stretchr/testify v1.9.0
 	github.com/tenntenn/golden v0.5.4
-	google.golang.org/protobuf v1.33.0
+	google.golang.org/protobuf v1.34.2
 )
 
 require (
