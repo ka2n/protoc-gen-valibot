@@ -6,7 +6,7 @@
 // biome-ignore format lint: 
 import { object, string } from 'valibot'
 
-export const OtherFileSchema = () => object({
+export const OtherFileValibot = () => object({
 	name: string()
 })
 
@@ -16,24 +16,30 @@ export const OtherFileSchema = () => object({
 
 // eslint-disable
 // biome-ignore format lint: 
-import { any, array, minLength, number, object, record, string } from 'valibot'
+import { any, array, minLength, number, object, partial, pipe, record, string } from 'valibot'
 
-import { OtherFileSchema } from './other.valibot'
+import { OtherFileValibot } from './other.valibot'
 
-export const SameFileSchema = () => object({
+export const SameFileValibot = () => object({
 	name: string()
 })
 
-export const StructSchema = () => object({
+export const StructValibot = () => object({
 	values: any()
 })
 
-export const TestMessageSchema = () => object({
+export const TestMessageValibot = () => object({
+	...(object({
 	name: string(),
  	id: number(),
- 	email: array(string(), [minLength(1)]),
- 	sameFile: SameFileSchema(),
- 	otherFile: OtherFileSchema(),
- 	map: record(string(), StructSchema())
+ 	email: pipe(array(string()), minLength(1)),
+ 	sameFile: SameFileValibot(),
+ 	otherFile: OtherFileValibot(),
+ 	map: record(string(), StructValibot())
+}).entries),
+ 	...(partial(object({
+	testOneofString: string(),
+ 	testOneofInt32: number()
+})).entries)
 })
 

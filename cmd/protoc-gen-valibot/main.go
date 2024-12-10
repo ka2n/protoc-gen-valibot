@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -16,15 +17,23 @@ import (
 )
 
 func main() {
-	protogen.Options{}.Run(func(plugin *protogen.Plugin) error {
+	var flags flag.FlagSet
+	optSchemaSuffix := flags.String("schema_suffix", "Schema", "suffix for schema name")
+
+	protogen.Options{
+		ParamFunc: flags.Set,
+	}.Run(func(plugin *protogen.Plugin) error {
 		plugin.SupportedFeatures = uint64(pluginpb.CodeGeneratorResponse_FEATURE_PROTO3_OPTIONAL)
+
+		var opt protocgenvalibot.GenerateOptions
+		opt.SchemaSuffix = *optSchemaSuffix
 
 		// preprocess
 		var preprocessedFiles []Plan
 		for _, file := range plugin.Files {
 			if file.Generate {
 				var plan Plan
-				if err := generatePlan(file, &plan); err != nil {
+				if err := generatePlan(file, &plan, opt); err != nil {
 					return fmt.Errorf("generating file %s: %v", file.Desc.Path(), err)
 				}
 				preprocessedFiles = append(preprocessedFiles, plan)
@@ -76,11 +85,11 @@ func relativeImportPath(baseProto string, targetProto string) (string, error) {
 	return rel[:len(rel)-3], nil
 }
 
-func generatePlan(file *protogen.File, plan *Plan) error {
+func generatePlan(file *protogen.File, plan *Plan, opt protocgenvalibot.GenerateOptions) error {
 	plan.File = file
 	plan.GenerateFileName = pathToGeneratedFile(file.Desc.Path())
 
-	if err := protocgenvalibot.Generate(file, &plan.Code); err != nil {
+	if err := protocgenvalibot.Generate(file, &plan.Code, opt); err != nil {
 		return fmt.Errorf("generating file %s: %v", file.Desc.Path(), err)
 	}
 

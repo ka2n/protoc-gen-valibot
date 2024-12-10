@@ -13,6 +13,11 @@ message TestMessage {
   SameFile same_file = 4;
   OtherFile other_file = 5;
   map<string, Struct> map = 6;
+
+  oneof oneof_field {
+    string test_oneof_string = 7;
+    int32 test_oneof_int32 = 8;
+  }
 }
 
 message SameFile {

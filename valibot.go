@@ -4,11 +4,20 @@ import (
 	"sort"
 
 	pvr "github.com/bufbuild/protovalidate-go/resolver"
+	"github.com/samber/lo"
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-func Generate(file *protogen.File, code *File) error {
+type GenerateOptions struct {
+	SchemaSuffix string
+}
+
+type GenContext struct {
+	Opt GenerateOptions
+}
+
+func Generate(file *protogen.File, code *File, opt GenerateOptions) error {
 	/** AST
 	source:
 	```typescript
@@ -36,6 +45,8 @@ func Generate(file *protogen.File, code *File) error {
 	```
 	*/
 
+	genCtx := GenContext{Opt: opt}
+
 	messages := file.Messages
 	sort.Slice(messages, func(i, j int) bool {
 		return messages[i].Desc.Name() < messages[j].Desc.Name()
@@ -43,8 +54,11 @@ func Generate(file *protogen.File, code *File) error {
 
 	declarations := make([]Declaration, 0, len(messages))
 	for _, m := range messages {
-		name := string(m.Desc.Name()) + "Schema"
-		ast := astNodeFromMessage(m)
+		name := string(m.Desc.Name()) + genCtx.Opt.SchemaSuffix
+		ast, err := astNodeFromMessage(genCtx, m)
+		if err != nil {
+			return err
+		}
 		decl := ExportVar{Name: name, Value: ast, Comment: m.Comments.Leading.String()}
 
 		declarations = append(declarations, decl)
@@ -54,20 +68,46 @@ func Generate(file *protogen.File, code *File) error {
 	return nil
 }
 
-func astNodeFromMessage(m *protogen.Message) Node {
-	var nameAndValues []any
+func astNodeFromMessage(genCtx GenContext, m *protogen.Message) (Node, error) {
 	fields := m.Fields
 	sort.Slice(fields, func(i, j int) bool {
 		return fields[i].Desc.Number() < fields[j].Desc.Number()
 	})
-	for _, f := range fields {
+
+	normalFields := lo.Filter(fields, func(f *protogen.Field, _ int) bool {
+		return f.Oneof == nil
+	})
+
+	var nameAndValues []any
+	for _, f := range normalFields {
 		nameAndValues = append(nameAndValues, string(f.Desc.JSONName()))
-		nameAndValues = append(nameAndValues, astNodeFromField(f))
+		nameAndValues = append(nameAndValues, astNodeFromField(genCtx, f))
 	}
-	return vmethod("object", object(nameAndValues...))
+	baseObj := valibotObject(object(nameAndValues...))
+	if len(m.Oneofs) == 0 {
+		return baseObj, nil
+	}
+
+	oneOfs := lo.Map(m.Oneofs, func(f *protogen.Oneof, _ int) Node {
+		var nameAndValues []any
+		for _, ff := range f.Fields {
+			nameAndValues = append(nameAndValues, string(ff.Desc.JSONName()))
+			nameAndValues = append(nameAndValues, astNodeFromField(genCtx, ff))
+		}
+		// ...(object({ <fields> }).entries)
+		return valibotPartial(valibotObject(object(nameAndValues...)))
+	})
+
+	elements := make([]Node, 0, len(oneOfs)+1)
+	elements = append(elements, baseObj)
+	elements = append(elements, oneOfs...)
+	member := lo.Map(elements, func(e Node, _ int) ObjectMember {
+		return ObjectSpread{Paren{Member{e, Ident{"entries"}}}}
+	})
+	return valibotObject(Object{member}), nil
 }
 
-func astNodeFromField(f *protogen.Field) Node {
+func astNodeFromField(genCtx GenContext, f *protogen.Field) Node {
 	var required bool
 	pvresolver := pvr.DefaultResolver{}
 	constraints := pvresolver.ResolveFieldConstraints(f.Desc)
@@ -78,13 +118,9 @@ func astNodeFromField(f *protogen.Field) Node {
 		// if FieldConstraints.required is true, then it is a non-empty array
 		// Further constraints can be added by using RepeatedRules, but it is not supported yet :(
 		if required {
-			return valibotArray(
-				astNodeFromFieldValue(f, false),
-				"",
-				vmethod("minLength", Number{Value: 1}),
-			)
+			return valibotPipe(valibotArray(astNodeFromFieldValue(genCtx, f, false), ""), vmethod("minLength", Number{Value: 1}))
 		} else {
-			return valibotArray(astNodeFromFieldValue(f, false), "")
+			return valibotArray(astNodeFromFieldValue(genCtx, f, false), "")
 		}
 	}
 
@@ -104,23 +140,23 @@ func astNodeFromField(f *protogen.Field) Node {
 
 		return valibotRecord(
 			keyType,
-			astNodeFromFieldDescriptor(f.Desc.MapValue(), false),
+			astNodeFromFieldDescriptor(genCtx, f.Desc.MapValue(), false),
 		)
 	}
 
-	return astNodeFromFieldValue(f, required)
+	return astNodeFromFieldValue(genCtx, f, required)
 }
 
-func astNodeFromFieldValue(f *protogen.Field, required bool) Node {
-	return astNodeFromFieldDescriptor(f.Desc, required)
+func astNodeFromFieldValue(genCtx GenContext, f *protogen.Field, required bool) Node {
+	return astNodeFromFieldDescriptor(genCtx, f.Desc, required)
 }
 
-func astNodeFromFieldDescriptor(f protoreflect.FieldDescriptor, required bool) Node {
+func astNodeFromFieldDescriptor(genCtx GenContext, f protoreflect.FieldDescriptor, required bool) Node {
 	switch f.Kind() {
 	// Scalars
 	case protoreflect.StringKind:
 		if required {
-			return valibotString("", vmethod("minLength", Number{1}))
+			return valibotPipe(valibotString(""), vmethod("minLength", Number{1}))
 		} else {
 			return valibotString("")
 		}
@@ -142,7 +178,7 @@ func astNodeFromFieldDescriptor(f protoreflect.FieldDescriptor, required bool) N
 			return valibotAny()
 		}
 
-		return Callable{Name: string(f.Message().Name()) + "Schema", Pkg: PkgLookup, PkgFile: string(f.Message().ParentFile().Path())}
+		return Callable{Name: string(f.Message().Name()) + genCtx.Opt.SchemaSuffix, Pkg: PkgLookup, PkgFile: string(f.Message().ParentFile().Path()), Args: []Node{}}
 	default:
 		return valibotAny()
 	}

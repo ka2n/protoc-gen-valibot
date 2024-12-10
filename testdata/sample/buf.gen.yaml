@@ -10,5 +10,7 @@ managed:
 plugins:
   - plugin: valibot
     out: ./output
-    opt: paths=source_relative
+    opt:
+      - paths=source_relative
+      - "schema_suffix=Valibot"
     path: ["go", "run", "../../cmd/protoc-gen-valibot/..."]
