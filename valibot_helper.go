@@ -39,6 +39,14 @@ func valibotObject(obj Node) Callable {
 	return Callable{Name: "object", Pkg: "valibot", Args: []Node{obj}}
 }
 
+func valibotIntersect(types ...Node) Callable {
+	return Callable{Name: "intersect", Pkg: "valibot", Args: []Node{nodesToArray(types...)}}
+}
+
+func valibotUnion(types ...Node) Callable {
+	return Callable{Name: "union", Pkg: "valibot", Args: []Node{nodesToArray(types...)}}
+}
+
 // array(Item, ErrorMessage|undefined, Pipe|undefined) | array(item, Pipe) | array(item)
 func valibotArray(item Node, message string, pipe ...Callable) Callable {
 	args := []Node{item}

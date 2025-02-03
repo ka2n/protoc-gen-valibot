@@ -2,7 +2,6 @@ package protocgenvalibot
 
 import (
 	pvr "github.com/bufbuild/protovalidate-go/resolver"
-	"github.com/samber/lo"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
@@ -66,54 +65,73 @@ func Generate(file protoreflect.FileDescriptor, code *File, opt GenerateOptions)
 func astNodeFromMessage(genCtx GenContext, m protoreflect.MessageDescriptor) (Node, error) {
 	fieldsIter := m.Fields()
 
+	intersections := make([]Node, 0)
+
 	normalFields := make([]protoreflect.FieldDescriptor, 0, fieldsIter.Len())
+	normalFieldsOpt := make([]protoreflect.FieldDescriptor, 0, fieldsIter.Len())
 	for i := 0; i < fieldsIter.Len(); i++ {
 		f := fieldsIter.Get(i)
 		if f.ContainingOneof() == nil {
-			normalFields = append(normalFields, fieldsIter.Get(i))
+			if isFieldRequired(f) {
+				normalFields = append(normalFields, f)
+			} else {
+				normalFieldsOpt = append(normalFieldsOpt, f)
+			}
+		}
+	}
+	baseObject := valibotObject(objectFromFields(genCtx, normalFields))
+	intersections = append(intersections, baseObject)
+
+	baseObjectOpt := valibotPartial(valibotObject(objectFromFields(genCtx, normalFieldsOpt)))
+	intersections = append(intersections, baseObjectOpt)
+
+	// Process oneofs
+	oneOfsIter := m.Oneofs()
+	for i := 0; i < oneOfsIter.Len(); i++ {
+		oneOfNodes := []Node{}
+		o := oneOfsIter.Get(i)
+		required := isOneofRequired(o)
+
+		if required {
+			for i := 0; i < o.Fields().Len(); i++ {
+				ff := o.Fields().Get(i)
+				oneOfNodes = append(
+					oneOfNodes,
+					valibotObject(object(string(ff.JSONName()), astNodeFromField(genCtx, ff))),
+				)
+			}
+		} else {
+			nameAndValues := []any{}
+			for i := 0; i < o.Fields().Len(); i++ {
+				ff := o.Fields().Get(i)
+				nameAndValues = append(nameAndValues, string(ff.JSONName()))
+				nameAndValues = append(nameAndValues, astNodeFromField(genCtx, ff))
+			}
+			oneOfNodes = append(oneOfNodes, valibotPartial(valibotObject(object(nameAndValues...))))
+		}
+
+		if len(oneOfNodes) > 1 {
+			oneOfUnion := valibotUnion(oneOfNodes...)
+			intersections = append(intersections, oneOfUnion)
+		} else if len(oneOfNodes) == 1 {
+			intersections = append(intersections, oneOfNodes[0])
 		}
 	}
 
-	var nameAndValues []any
-	for _, f := range normalFields {
+	return valibotIntersect(intersections...), nil
+}
+
+func objectFromFields(genCtx GenContext, fields []protoreflect.FieldDescriptor) Object {
+	nameAndValues := make([]any, 0, len(fields)*2)
+	for _, f := range fields {
 		nameAndValues = append(nameAndValues, string(f.JSONName()))
 		nameAndValues = append(nameAndValues, astNodeFromField(genCtx, f))
 	}
-	baseObj := valibotObject(object(nameAndValues...))
-	oneOfsIter := m.Oneofs()
-	if oneOfsIter.Len() == 0 {
-		return valibotPartial(baseObj), nil
-	}
-
-	oneOfNodes := make([]Node, 0, oneOfsIter.Len())
-	//oneOfs := make([]protoreflect.OneofDescriptor, 0, oneOfsIter.Len())
-	for i := 0; i < oneOfsIter.Len(); i++ {
-		o := oneOfsIter.Get(i)
-
-		var nameAndValues []any
-		for i := 0; i < o.Fields().Len(); i++ {
-			ff := o.Fields().Get(i)
-			nameAndValues = append(nameAndValues, string(ff.JSONName()))
-			nameAndValues = append(nameAndValues, astNodeFromField(genCtx, ff))
-		}
-
-		oneOfNodes = append(oneOfNodes, valibotObject(object(nameAndValues...)))
-	}
-
-	elements := make([]Node, 0, len(oneOfNodes)+1)
-	elements = append(elements, baseObj)
-	elements = append(elements, oneOfNodes...)
-	member := lo.Map(elements, func(e Node, _ int) ObjectMember {
-		return ObjectSpread{Paren{Member{e, Ident{"entries"}}}}
-	})
-	return valibotPartial(valibotObject(Object{member})), nil
+	return object(nameAndValues...)
 }
 
 func astNodeFromField(genCtx GenContext, f protoreflect.FieldDescriptor) Node {
-	var required bool
-	pvresolver := pvr.DefaultResolver{}
-	constraints := pvresolver.ResolveFieldConstraints(f)
-	required = constraints.GetRequired()
+	required := isFieldRequired(f)
 
 	if f.IsList() {
 		// https://buf.build/bufbuild/protovalidate/docs/main:buf.validate#buf.validate.FieldConstraints
@@ -184,4 +202,20 @@ func astNodeFromFieldDescriptor(genCtx GenContext, f protoreflect.FieldDescripto
 	default:
 		return valibotAny()
 	}
+}
+
+func isFieldRequired(f protoreflect.FieldDescriptor) bool {
+	var required bool
+	pr := pvr.DefaultResolver{}
+	constraints := pr.ResolveFieldConstraints(f)
+	required = constraints.GetRequired()
+	return required
+}
+
+func isOneofRequired(f protoreflect.OneofDescriptor) bool {
+	var required bool
+	pr := pvr.DefaultResolver{}
+	constraints := pr.ResolveOneofConstraints(f)
+	required = constraints.GetRequired()
+	return required
 }

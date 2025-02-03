@@ -17,8 +17,20 @@ message TestMessage {
   map<string, Struct> map = 6;
 
   oneof oneof_field {
-    string test_oneof_string = 7;
-    int32 test_oneof_int32 = 8;
+    string f1 = 7;
+    int32 f2 = 8;
+  }
+
+  oneof oneof_field_second {
+    string f3 = 9;
+    int32 f4 = 10;
+  }
+
+  oneof oneof_field_third {
+    option (buf.validate.oneof).required = true;
+
+    string f5 = 11;
+    int32 f6 = 12;
   }
 }
 
